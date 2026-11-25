@@ -1,0 +1,6 @@
+{
+  "name": "Operation Stealth Telemetry — Red/Blue CTI Lab",
+  "description": "Interactive Red/Blue AppSec and Cyber Threat Intelligence workbench simulating telemetry-induced metadata exposure, token triage, origin-lock bypass, and defense-in-depth stealth proxying.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

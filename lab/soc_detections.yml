@@ -1,0 +1,57 @@
+# SOC & SIEM Detection Rules — Telemetry OpSec Boundary Enforcement
+# Designed for ELK / Splunk / Edge Proxy log validation alongside anonymized gateways
+
+rules:
+  - id: TEL-OPSEC-001
+    title: Plaintext Client Tracking Token in URI Query Parameters
+    severity: low_infra_medium_log
+    logsource: corporate_http_proxy
+    detection:
+      uri_contains: "api-key=pub"
+      exclude_masked: "[MASKED_BY_SIEM]"
+    remediation: "Enable header-only authorization token forwarding in the server proxy and configure upstream SIEM query parameter string masking rules."
+
+  - id: TEL-OPSEC-002
+    title: Direct Third-Party SaaS Telemetry Egress from Pre-Release Infrastructure
+    severity: high_opsec
+    logsource: dns_and_egress_proxy
+    detection:
+      destination_domains:
+        - "browser-intake-datadoghq.com"
+        - "us.i.posthog.com"
+      source_origin_contains:
+        - "staging"
+        - "alpha"
+        - "localhost"
+    remediation: "Force routing strictly through first-party internal /api/telemetry proxy channels or activate the DISABLE_THIRD_PARTY_IN_STAGING boolean state."
+
+  - id: TEL-OPSEC-003
+    title: Telemetry Gateway Proxy Session Binding Signature Failure
+    severity: medium
+    logsource: app_proxy_http
+    detection:
+      path: "/api/telemetry"
+      status_code: 401
+      threshold: ">= 3 events in 60s per source_ip"
+    remediation: "Investigate source network address for unsigned telemetry injection attempts, outdated signatures, or cross-tenant X-Account-Id token parameter mismatches."
+
+  - id: TEL-OPSEC-004
+    title: Ingestion Volumetric Burst Blocked at Edge Rate Limiter
+    severity: medium
+    logsource: app_proxy_http
+    detection:
+      path: "/api/telemetry"
+      status_code: 429
+    remediation: "Verify edge sliding-window parameters (IP + User-ID) and ensure cloud monitoring consumption threshold monthly caps are turned on."
+
+  - id: TEL-OPSEC-005
+    title: Unmasked Workflow Routine or Operational Campaign Correlation Spike
+    severity: high_opsec
+    logsource: api_gateway
+    detection:
+      path_prefix: "/workflows/flow_"
+      headers_present:
+        - "x-campaign-id"
+        - "x-account-id"
+      threshold: ">= 3 events sharing x-campaign-id in 60s"
+    remediation: "Mask endpoint paths to opaque structures, discard tracking resources via client-side beforeSend interceptors, and apply secure hashes to downstream correlation variables."

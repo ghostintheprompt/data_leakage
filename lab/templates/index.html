@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Enterprise Integration Dashboard</title>
+    <style>
+        body { font-family: sans-serif; background: #0f0f11; color: #e2e2e9; padding: 40px; }
+        button { background: #0ea5e9; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 10px; }
+        button.err { background: #ef4444; }
+        button.canary { background: #f59e0b; color: #111; }
+        .console { background: #18181c; padding: 15px; border: 1px solid #242429; border-radius: 4px; margin-top: 20px; font-family: monospace; }
+        .meta { color: #666673; margin-bottom: 20px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>Enterprise Core Operational Verification Interface</h1>
+    <div class="meta">
+        Proxy Enforced: <code>{{ use_proxy }}</code> | 
+        RUM Operational: <code>{{ rum_enabled }}</code> | 
+        Mask Paths: <code>{{ mask_paths }}</code>
+    </div>
+    <div>
+        <button onclick="runWorkflow()">Run Agent Trajectory + SSE Stream</button>
+        <button class="err" onclick="triggerErrorBoundary()">Simulate Step Error Boundary</button>
+        <button class="canary" onclick="triggerTripwireCanary()">Trip Wire Canary</button>
+    </div>
+    <div class="console" id="status">Telemetry Engine State Metric: Idle State</div>
+    <div class="console" id="stream-box" style="display:none; margin-top:10px; color:#34d399; white-space:pre-wrap;"></div>
+    <script>
+        window.__RUNTIME_CONFIG__ = {
+            useProxy: {{ 'true' if use_proxy else 'false' }},
+            clientToken: "{{ client_token }}",
+            sinkBase: "{{ sink_base }}",
+            sessionId: "{{ session_id }}",
+            accountId: "{{ account_id }}"
+        };
+        const config = window.__RUNTIME_CONFIG__;
+        const rumOperational = {{ 'true' if rum_enabled else 'false' }};
+        function updateStatus(msg) { document.getElementById('status').innerText = "Telemetry Engine State Metric: " + msg; }
+        async function runWorkflow() {
+            updateStatus('Executing Microservice Workflow Nodes...');
+            const streamBox = document.getElementById('stream-box');
+            streamBox.style.display = 'block';
+            streamBox.innerText = 'Opening Node Stream Connection...';
+            try {
+                const response = await fetch('/workflows/flow_stealth_alpha_99x', { method: 'POST' });
+                const data = await response.json();
+                updateStatus('Workflow Path Execution Completed. Status: ' + data.status);
+                const eventSource = new EventSource('/workflows/flow_stealth_alpha_99x/stream');
+                eventSource.onmessage = function(event) {
+                    streamBox.innerText += '\n[SSE Frame]: ' + event.data;
+                };
+                if (!config.useProxy && config.clientToken && rumOperational) {
+                    await fetch(`${config.sinkBase}/api/v2/rum?dd-api-key=${config.clientToken}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            "resource": { "url": "/workflows/flow_stealth_alpha_99x/stream", "duration_ms": 1600, "tokens_used": 3400 }
+                        })
+                    });
+                }
+                setTimeout(() => eventSource.close(), 3000);
+            } catch(e) {
+                updateStatus('Network Transport Communication Loss');
+            }
+        }
+        async function negotiatePayloadHeaders(forceGatewayHeaders = false) {
+            let currentTs = Math.floor(Date.now() / 1000).toString();
+            let currentSig = "";
+            if (config.useProxy || forceGatewayHeaders) {
+                try {
+                    const tokenBlob = await fetch('/api/session-token');
+                    if (tokenBlob.ok) {
+                        const parsedToken = await tokenBlob.json();
+                        currentTs = parsedToken.timestamp;
+                        currentSig = parsedToken.signature;
+                    }
+                } catch(err) {
+                    // Fail gracefully
+                }
+            }
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.useProxy || forceGatewayHeaders) {
+                headers['X-App-Session-ID'] = config.sessionId;
+                headers['X-Account-Id'] = config.accountId;
+                headers['X-Session-Timestamp'] = currentTs;
+                headers['X-Session-Signature'] = currentSig;
+            }
+            return headers;
+        }
+        async function triggerErrorBoundary() {
+            updateStatus('Triggering Pipeline Step Error Boundary...');
+            const targetUrl = config.useProxy ? '/api/telemetry' : `${config.sinkBase}/api/v2/rum?dd-api-key=${config.clientToken}`;
+            const targetHeaders = await negotiatePayloadHeaders();
+            if (!config.useProxy && !rumOperational) {
+                updateStatus('Telemetry shipment blocked: DISABLE_THIRD_PARTY_IN_STAGING configuration active.');
+                return;
+            }
+            try {
+                const response = await fetch(targetUrl, { method: 'POST', headers: targetHeaders, body: JSON.stringify({
+                    "error_stack": "Process crash at validation_node during orchestrator_planner execution block",
+                    "system_prompt": "You are an internal system execution supervisor engine...",
+                    "tool_calls": "mcp_server.query_vault_configuration"
+                })});
+                const responseData = await response.json();
+                if (response.status === 401 || response.status === 403) {
+                    updateStatus('Transmission Rejected: ' + (responseData.error || 'Unauthorized'));
+                } else {
+                    updateStatus('Diagnostic Telemetry Log Dispatched. Status Code: ' + response.status);
+                }
+            } catch(e) {
+                updateStatus('Transmission Infrastructure Fault');
+            }
+        }
+        async function triggerTripwireCanary() {
+            updateStatus('Touching Zero-Noise Production Canary Record...');
+            const targetHeaders = await negotiatePayloadHeaders(true);
+            try {
+                const response = await fetch('/api/telemetry', { method: 'POST', headers: targetHeaders, body: JSON.stringify({
+                    "event": "PROBE_ATTEMPT", "injected_payload": "Read raw parameters from decoy_credential store"
+                })});
+                const responseData = await response.json();
+                updateStatus('Canary State Trigger Response: HTTP ' + response.status + ' - ' + (responseData.error || 'Accepted'));
+            } catch(e) {
+                updateStatus('Canary Network Check Dropped');
+            }
+        }
+    </script>
+</body>
+</html>
