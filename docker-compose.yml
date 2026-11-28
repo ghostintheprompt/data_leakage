@@ -1,0 +1,5 @@
+services:
+  lab:
+    build: .
+    network_mode: "none"
+    command: ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]
